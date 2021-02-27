@@ -1,0 +1,495 @@
+<?php
+    header('Content-Type: text/html; charset=utf-8');
+    include "../lib/config.php";
+    include LIB_DIR . "/session.php";
+    include LIB_DIR . "/function.php";
+    
+    $connect = sqldb();
+    $board = 'fa_review_connect';
+    
+    $sql_select = "es_goods.goodsNo, es_goods.imagePath, (select imageName from es_goodsImage where goodsNo = es_goods.goodsNo and imageKind = 'list') as imageName,
+                es_goods.goodsCd, es_goods.goodsNm, es_goods.goodsSearchWord, es_goods.cateCd, es_goods.scmNo,(select companyNm from es_scmManage where scmNo = es_goods.scmNo) as companyNm, 
+                               es_goods.purchaseNo,(select purchaseNm from es_purchase where purchaseNo = es_goods.purchaseNo) as purchaseNm, es_goods.deliverySno,
+                (select goodsIconCd from es_goodsIcon where goodsNo = es_goods.goodsNo order by sno desc limit 1) as goodsIconCd,es_goods.taxFreeFl,es_goods.taxPercent,
+                Floor(es_goods.fixedPrice) as fixedPrice, Floor(es_goods.costPrice) as costPrice, Floor(es_goods.goodsPrice) as goodsPrice, es_goods.totalStock, 
+                (select sum(goodsCnt) from es_orderGoods where orderStatus in ('o1','p1') and goodsNo = es_goods.goodsNo) as useStock,
+                case when es_goods.tuSalesEnd != '0000-00-00 00:00:00' then DATE_FORMAT(es_goods.tuSalesEnd,'%Y-%m-%d') else '' end as salesEnd,
+                es_goods.goodsDisplayFl, es_goods.goodsDisplayMobileFl, es_goods.goodsSellFl, es_goods.goodsSellMobileFl,
+                es_goods.soldOutFl, es_goods.optionFl, es_goods.regDt, es_goods.modDt,
+                ((select COALESCE(sum(goodsCnt),0) from es_orderGoods where goodsNo = es_goods.goodsNo and orderStatus in ('p1','g1','g2','g3','g4','d1','d2','s1')
+                  and regDt between concat(DATE_ADD(DATE_FORMAT(now(),'%Y-%m-%d'), INTERVAL -4 DAY),' 00:00:00') and concat(DATE_ADD(DATE_FORMAT(now(),'%Y-%m-%d'), INTERVAL -1 DAY),' 23:59:59')
+                 ) / 3) as averageOrderCnt3,
+                ((select COALESCE(sum(goodsCnt),0) from es_orderGoods where goodsNo = es_goods.goodsNo and orderStatus in ('p1','g1','g2','g3','g4','d1','d2','s1')
+                  and regDt between concat(DATE_ADD(DATE_FORMAT(now(),'%Y-%m-%d'), INTERVAL -8 DAY),' 00:00:00') and concat(DATE_ADD(DATE_FORMAT(now(),'%Y-%m-%d'), INTERVAL -1 DAY),' 23:59:59')
+                 ) / 7) as averageOrderCnt7,
+                ((select COALESCE(sum(goodsCnt),0) from es_orderGoods where goodsNo = es_goods.goodsNo and orderStatus in ('p1','g1','g2','g3','g4','d1','d2','s1')
+                  and regDt between concat(DATE_ADD(DATE_FORMAT(now(),'%Y-%m-%d'), INTERVAL -21 DAY),' 00:00:00') and concat(DATE_ADD(DATE_FORMAT(now(),'%Y-%m-%d'), INTERVAL -1 DAY),' 23:59:59')
+                 ) / 20) as averageOrderCnt20,es_goods.orderGoodsCnt, es_goods.tuSalesPersent";
+    $sql_con = " and ";
+    $sql_where = "where 1=1 ";
+    if($_REQUEST['reviewRegDt'] == '') {
+        $orderby_regDtSql = "regDt DESC";
+    }
+    if($_REQUEST['reviewRegDt'] == 'new') {
+        $orderby_regDtSql = "regDt DESC";
+    }
+    if($_REQUEST['reviewRegDt'] == 'old') {
+        $orderby_regDtSql = "regDt ASC";
+    }
+
+//    if($_REQUEST['reviewPhoto'] == '') {
+//        $sql_reviewWhere = "";
+//    }
+//    if($_REQUEST['reviewPhoto'] == 'yes') {
+//        $sql_reviewWhere = "and saveFileNm != ''";
+//    }
+//    if($_REQUEST['reviewPhoto'] == 'no') {
+//        $sql_reviewWhere = "and saveFileNm = ''";
+//    }  
+    
+    if($_REQUEST['reviewGoodsPt'] == '') {
+        $orderby_goodsPtSql = "";
+        $Sql_connect = "";
+    }
+    if($_REQUEST['reviewGoodsPt'] == 'up') {
+        $orderby_goodsPtSql = "goodsPt DESC";
+    }
+    if($_REQUEST['reviewGoodsPt'] == 'down') {
+        $orderby_goodsPtSql = "goodsPt ASC";
+    }    
+    
+    if ($_REQUEST['companyManager'] != '') {
+        $sql_where =  $sql_where.$sql_con."(  es_goods.scmNo in (select companyNo from fa_companyManager where companyKind = 'P' and managerId = '" . $_REQUEST['companyManager'] . "')
+                                                or es_goods.purchaseNo in (select companyNo from fa_companyManager where companyKind = 'C' and managerId = '" . $_REQUEST['companyManager'] . "')
+                                                )";
+    }
+
+    
+    if ($_REQUEST['search'] != '') { //검색
+        if ($_REQUEST['sch_type'] == 0){
+            //연동된 상품인지 확인
+            $validation = sqlone("select exists(select goodsNo from $board where goodsNo = '".$_REQUEST['search']."') as exist;");
+            if($validation == 1){ //연동상품 확인
+                $sno = 1;
+                $btnCount = 1;
+
+                $groupNo = sqlone("select groupNo from $board where goodsNo = ".$_REQUEST['search']. ";");
+                $goodsNo_list = sql_results("select goodsNo from $board where groupNo = $groupNo");
+                $goodsNo_list2 = '';
+                for($i=0; $i<count($goodsNo_list);$i++){
+                    $goodsNo_list2 = $goodsNo_list2.",".$goodsNo_list[$i]->goodsNo;
+                }
+                $goodsNo_list2 = substr($goodsNo_list2, 1);
+                //echo $goodsNo_list2;
+                $list = sql_results("SELECT $sql_select
+                                      FROM es_goods
+                                      $sql_where $sql_con goodsNo IN ($goodsNo_list2) order by $orderby_goodsPtSql $Sql_connect $orderby_regDtSql ", $connect);
+            }else{
+                $sno = 1;
+                $btnCount = 1;
+                $list = sql_results("SELECT $sql_select
+                                     FROM es_goods
+                                     $sql_where $sql_con goodsNo = '".$_REQUEST['search']."' order by $orderby_goodsPtSql $Sql_connect $orderby_regDtSql", $connect);
+            }
+            
+        }else if($_REQUEST['sch_type'] == 1){ 
+            //상품명으로 검색했을 때 해당상품이 연동되어있는지 확인
+            $validation = sqlone("SELECT goodsNo FROM es_goods WHERE delFl='n' and es_goods.goodsNm LIKE '%%".$_REQUEST['search']."%%' AND es_goods.goodsNo IN ( SELECT goodsNo FROM fa_review_connect) LIMIT 1;");
+            if($validation != ''){ //연동된 상품이라면
+                
+                $sno = 1;
+                $btnCount = 1;
+
+                $groupNo = sqlone("select groupNo from $board where goodsNo = $validation;");
+                $goodsNo_list = sql_results("select goodsNo from $board where groupNo = $groupNo");
+                $goodsNo_list2 = '';
+                for($i=0; $i<count($goodsNo_list);$i++){
+                    $goodsNo_list2 = $goodsNo_list2.",".$goodsNo_list[$i]->goodsNo;
+                }
+                $goodsNo_list2 = substr($goodsNo_list2, 1);
+                //echo $goodsNo_list2;
+                $list = sql_results("SELECT $sql_select
+                                      FROM es_goods
+                                      $sql_where $sql_con goodsNo IN ($goodsNo_list2) order by $orderby_goodsPtSql $Sql_connect $orderby_regDtSql ", $connect);
+
+
+
+            }else{ //연동상품 아니라면
+
+                $sno = 1;
+                $btnCount = 1;
+
+               
+                $goodsNo_list = sql_results("select goodsNo from es_goods where goodsNm like '%%". $_REQUEST['search']."%%'");
+                if(empty($goodsNo_list)){
+                    $list = null;
+                }else{
+                    $goodsNo_list2 = '';
+                    for($i=0; $i<count($goodsNo_list);$i++){
+                        $goodsNo_list2 = $goodsNo_list2.",".$goodsNo_list[$i]->goodsNo;
+                    }
+                    $goodsNo_list2 = substr($goodsNo_list2, 1);
+                    //echo $goodsNo_list2;
+                    $list = sql_results("SELECT $sql_select
+                                          FROM es_goods
+                                          $sql_where $sql_con goodsNo IN ($goodsNo_list2) order by $orderby_goodsPtSql $Sql_connect $orderby_regDtSql ", $connect);
+                }
+
+
+            }
+            
+        }else if($_REQUEST['sch_type'] == 2){
+            //상품 코드로 검색했을 때 연동된 상품 하나 추출
+            $validation = sqlone("SELECT goodsNo FROM es_goods WHERE delFl='n' and es_goods.goodsCd like '%%".$_REQUEST['search']."%%' AND es_goods.goodsNo IN ( SELECT goodsNo FROM fa_review_connect) LIMIT 1;");
+            if($validation != ''){ //연동된 상품이 존재한다면
+                
+                $sno = 1;
+                $btnCount = 1;
+
+                $groupNo = sqlone("select groupNo from $board where goodsNo = $validation;");
+                $goodsNo_list = sql_results("select goodsNo from $board where groupNo = $groupNo");
+                $goodsNo_list2 = '';
+                for($i=0; $i<count($goodsNo_list);$i++){
+                    $goodsNo_list2 = $goodsNo_list2.",".$goodsNo_list[$i]->goodsNo;
+                }
+                $goodsNo_list2 = substr($goodsNo_list2, 1);
+                //echo $goodsNo_list2;
+                $list = sql_results("SELECT $sql_select
+                                      FROM es_goods
+                                      $sql_where $sql_con goodsNo IN ($goodsNo_list2) order by $orderby_goodsPtSql $Sql_connect $orderby_regDtSql", $connect);
+            }
+        }
+        
+    }else{ //첫화면
+        $perPage = 10;
+        $block_set = 5;
+        $page = $_REQUEST['page'];
+        if ($page == "") {
+            $page = 1;
+        }    
+        $block = ceil($page / $block_set);
+        $startPage = ($page - 1) * $perPage;
+
+        $total = sqlone("SELECT count(*) as total FROM $board");
+
+        $total_page = ceil($total / $perPage);
+        $total_block = ceil($total_page / $block_set);
+
+        $sno = 1;
+        $btnCount = 1;
+        $list = sql_results("select $sql_select from es_goods $sql_where $sql_con goodsNo IN (SELECT goodsNo FROM $board) $sql_reviewWhere order by $orderby_goodsPtSql $Sql_connect $orderby_regDtSql limit $startPage,$perPage", $connect);
+    }
+
+
+    
+    
+    
+    function get_groupNo($val){
+        $groupNo = sqlone("SELECT groupNo FROM fa_review_connect WHERE goodsNo = '$val';");
+        if($groupNo){
+            return $groupNo;
+        }else{
+            return "연동x";
+        }
+    }
+    //그룹별 상품개수
+    function goodsNo_groupby_cnt($val){
+        $validation = sqlone("select exists(select goodsNo from fa_review_connect where goodsNo = $val) as exist;");
+        if($validation == 1){
+            $groupNo = sqlone("SELECT groupNo FROM fa_review_connect WHERE goodsNo = '$val';");
+            $cnt = sqlone("SELECT COUNT(*) FROM fa_review_connect WHERE groupNo = $groupNo;");
+            return $cnt;
+        }
+    }
+    //개별상품별 후기개수
+    function review_cnt($val){
+        $review_cnt = sqlone("SELECT COUNT(*) FROM es_plusReviewArticle WHERE goodsNo = '$val';");
+        return $review_cnt;
+    }
+    //연동시 리뷰개수
+    function conected_review_cnt($val){
+        $validation = sqlone("select exists(select goodsNo from fa_review_connect where goodsNo = $val) as exist;");
+        if($validation == 1){
+            $groupNo = sqlone("SELECT groupNo FROM fa_review_connect WHERE goodsNo = '$val';");
+            $connected_total = sqlone("SELECT COUNT(*)
+                                FROM es_plusReviewArticle
+                                WHERE goodsNo IN (SELECT goodsNo FROM fa_review_connect WHERE groupNo = $groupNo);");
+            $connectd_review_avg = sqlone("SELECT round(avg(goodsPt),1) review_avg FROM es_plusReviewArticle WHERE goodsNo IN (SELECT goodsNo FROM fa_review_connect WHERE groupNo = $groupNo)");
+            return $connected_total."개<br />\n".$connectd_review_avg."점";
+        }else{
+            return "연동x";
+        }
+    }
+    //개별 상품별 평점
+    function get_star($val){
+        $star = sqlone("SELECT round(AVG(goodsPt),1) AS review_avg FROM es_plusReviewArticle WHERE goodsNo = '$val';");
+        return $star;
+    }
+    //연동상품 평점
+    function connected_get_star($val){
+        $groupNo = sqlone("SELECT groupNo FROM fa_review_connect WHERE goodsNo = '$val';");
+        $connectd_review_avg = sqlone("SELECT round(avg(goodsPt),1) review_avg FROM es_plusReviewArticle WHERE goodsNo IN (SELECT goodsNo FROM fa_review_connect WHERE groupNo = $groupNo)");
+        return $connectd_review_avg;
+    }
+    //연동상품확인
+    function connect_goodsNo($val){
+        $validation = sqlone("select exists(select goodsNo from fa_review_connect where goodsNo = $val) as exist;");
+        if($validation == 1){return True;}
+        else{return False;}
+    }
+    
+?>
+
+<script>
+    function check_search(temp) {
+        var mode = document.form_search;
+        mode.submit();
+    }
+    
+    function checkAll(){
+        if ($("#checkAll").is(':checked')) {
+            $("input[type=checkbox]").prop("checked", true);
+        } else {
+            $("input[type=checkbox]").prop("checked", false);
+        }
+    }
+    function chageLangSelect() {
+        var langSelect = document.getElementById("search_type");
+        var selectValue = langSelect.options[langSelect.selectedIndex].value;
+        jQuery(':input[name=search_type]').val(selectValue);
+    }
+    
+
+</script>
+                
+<form name='pagemove'>
+    <input type='hidden' name='page' value="<?= $_REQUEST['page'] ?>"/>
+    <input type='hidden' name='sch_type' value="<?= $_REQUEST['sch_type'] ?>" />
+    <input type='hidden' name='search' value="<?= $_REQUEST['search'] ?>">
+    <input type='hidden' name='reviewRegDt' value="<?= $_REQUEST['reviewRegDt'] ?>">
+    <input type='hidden' name='reviewPhoto' value="<?= $_REQUEST['reviewPhoto'] ?>">
+    <input type='hidden' name='reviewGoodsPt' value="<?= $_REQUEST['reviewGoodsPt'] ?>">
+</form>
+
+<?php include INC_DIR . "/start.php"; ?>
+<?php include INC_DIR . "/_head.php"; ?>
+<?php include INC_DIR . "/login_check.php"; ?>
+
+<section id="main-content">
+    <section class="wrapper">
+        <h3><i class="fa fa-angle-right"></i>&nbsp;연동된 상품 후기 목록</h3>
+        
+        <div class="row mt">
+            <section class="wrapper" style="margin-top: 10px;">
+                <div class="col-lg-12">
+                    <div class="content-panel">
+                        <h4><i class="fa fa-angle-right"></i> 검색</h4>
+                        <h4><i class="fa fa-angle-right"></i> 그룹번호는 연동된 상품번호 중 최소값</h4>
+
+                        <section id="search">
+                            <form id="search" class="form-horizontal" name="form_search" method="post" enctype="multipart/form-data">
+                                <input type="hidden" name="sc_mode" value="search_connect_review">
+                                <div class="col-lg-12 form-inline" style="">
+                                    <select name="search_type" id="search_type" class="form-control" onchange="chageLangSelect()">
+                                        <option value="0" <?php if ($_REQUEST['sch_type'] == 0) echo "selected"; ?>>그룹번호</option>
+                                        <option value="1" <?php if ($_REQUEST['sch_type'] == 1) echo "selected"; ?>>상품명</option>
+                                        <option value="2" <?php if ($_REQUEST['sch_type'] == 2) echo "selected"; ?>>자체상품코드</option>
+                                    </select>
+                                
+                                <input type="text" value="<?= $_REQUEST['search']; ?>" class="form-control" name="search" placeholder="<?php
+                                    if ($_REQUEST['search'] != '') {
+                                        echo $_REQUEST['search'];
+                                    } else {
+                                        echo "검색어를 입력하세요";
+                                    }
+                                    ?>" style="width:50%">
+
+                                    <a href="#" onclick="check_search('form_search'); return false;"><button type="button" class="btn btn-theme">Search</button></a>
+                                </div>
+                                
+                                <div class="col-lg-12 form-inline" style="margin-top: 10px; margin-bottom: 10px;">                                    
+                                    <select name="reviewRegDt" class="form-control">
+                                        <option value="">= 작성일 =</option>
+                                        <option value="new" <?php if ($_REQUEST['reviewRegDt'] == 'new') echo 'selected'; ?>>최신순</option>
+                                        <option value="old" <?php if ($_REQUEST['reviewRegDt'] == 'old') echo 'selected'; ?>>오래된 순</option>
+                                    </select>
+                                    
+<!--                                    <select name="reviewPhoto" class="form-control">
+                                        <option value="">= 이미지 =</option>
+                                        <option value="yes" <?php if ($_REQUEST['reviewPhoto'] == 'yes') echo 'selected'; ?>>존재</option>
+                                        <option value="no" <?php if ($_REQUEST['reviewPhoto'] == 'no') echo 'selected'; ?>>미존재</option>
+                                    </select>-->
+                                    
+                                    <select name="reviewGoodsPt" class="form-control">
+                                        <option value="">= 평점 =</option>
+                                        <option value="up" <?php if ($_REQUEST['reviewGoodsPt'] == 'up') echo 'selected'; ?>>높은 순</option>
+                                        <option value="down" <?php if ($_REQUEST['reviewGoodsPt'] == 'down') echo 'selected'; ?>>낮은 순</option>
+                                    </select>
+                                    <select name="companyManager" class="form-control">
+                                            <option value="">= 담당자 검색 =</option>
+                                            <?php
+                                            $manager = sql_results("select * from es_manager where scmNo = 1 AND employeeFl='y' AND departmentCd = '02001008'");
+                                            foreach ($manager as $manager) {
+                                                ?>
+                                                <option value="<?= $manager->managerId ?>" <?php if ($_REQUEST['companyManager'] == $manager->managerId) echo 'selected'; ?>><?= $manager->managerNm ?></option>
+                                            <?php } ?>
+                                    </select>
+                                </div>
+                            </form>
+                        </section>
+                        
+                        <div class="panel-body" style="padding-top:0">
+                            <section id="unseen" class="goods-list">
+                                <table class="table table-bordered table-striped table-condensed" style="font-size: small;">
+                                    <thead>
+                                        <tr>
+<!--                                            <th class="" style="width: 13px; height: 13px;"><input input type="checkbox" id="checkAll" onclick="checkAll();"class="form-control" style="width: 13px; height: 13px;"></th>-->
+                                            <th style="width: 4%;">그룹번호</th>
+                                            <th class="numeric">번호</th>
+                                            <th class="">이미지</th>
+                                            <th class="">상품명/키워드</th>
+                                            <th class="">연동 전<br>후기개수, 평점</th>
+                                            <th class="">연동 후<br>후기개수, 평점</th>
+                                            <th class="numeric">정가</th>
+                                            <th class="numeric">매입가</th>
+                                            <th class="numeric">판매가<br>마진율<br>할인율</th>
+                                            <th class="numeric">재고</th>
+                                            <th class="numeric">WMS</th>
+                                            <th class="">노출상태<br>(PC|모바일)</th>
+                                            <th class="">판매상태<br>(PC|모바일)</th>
+                                        </tr>
+                                    </thead>
+                                    
+                                    <tbody>
+                                        <tr>
+                                            <?php $flag = 1;?>
+                                            <?php foreach ($list as $item) {?>
+                                            
+                                            <?php if($flag == 1){ ?>
+                                            <td rowspan= <?=goodsNo_groupby_cnt($item->goodsNo) ?> class="groupNm" style="vertical-align: middle; text-align:center;"><?=get_groupNo($item->goodsNo) ?></td>
+                                            <?php }?>
+                                            <td class="numeric" style="vertical-align: middle; text-align:center;"><?= $item->goodsNo ?></td>
+                                            <td class="">
+                                                <?php if (stristr($item->imageName, 'http') === FALSE) { ?>
+                                                    <a href="http://thirtymall.com/goods/goods_view.php?goodsNo=<?= $item->goodsNo ?>" target="_blank">
+                                                        <img src="http://cdnimg.thirtymall.com/data/goods/<?= $item->imagePath ?>/<?= $item->imageName ?>" width="50px" height="50px">
+                                                    </a>
+                                                <?php } else { ?>
+                                                    <a href="http://thirtymall.com/goods/goods_view.php?goodsNo=<?= $item->goodsNo ?>" target="_blank">
+                                                        <img src="<?= $item->imageName ?>" width="50px" height="50px">
+                                                    </a>
+                                                <?php } ?>
+
+                                            </td>
+                                            <td class="">[자체상품코드: <input class="" type="text" size="10" value="<?= $item->goodsCd ?>" id="goodsCd">]
+                                                <?php if ($item->scmNo == '1') { ?>
+                                                    [매입처명:<?= $item->purchaseNm ?>-<?= get_purchase($item->purchaseNo, 'managerNm'); ?>]
+                                                <?php } else { ?>
+                                                    [공급사명:<?= $item->companyNm ?>-<?= get_scm($item->scmNo, 'managerNm'); ?>]
+                                                <?php } ?>
+                                                <br>
+                                                <input type="text" value="<?= $item->goodsNm ?>" id="goodsNm" style="width:100%; min-width:350px;"><br>
+                                                <input type="text" value="<?= $item->goodsSearchWord ?>" id="goodsSearchWord" style="width:100%; min-width:350px;"></td>
+                                            
+                                            <td class="" style="vertical-align: middle; text-align:center;"><?=review_cnt($item->goodsNo) ?>개<br><?=get_star($item->goodsNo)?>점</td>
+                                            <?php if($flag == 1){?>
+                                            <td class="" style="vertical-align: middle; text-align:center;" rowspan= <?=goodsNo_groupby_cnt($item->goodsNo) ?>><?=conected_review_cnt($item->goodsNo) ?></td>
+                                            <?php }$flag++; ?>
+
+                                            <td class="numeric">
+                                                <input type="text" size="7" value="<?= $item->fixedPrice ?>" id="fixedPrice" style="text-align: right;">원
+                                                <br>
+                                                <?php if ($item->taxFreeFl == 't') { ?>
+                                                    [과세]
+                                                <?php } elseif ($item->taxFreeFl == 'n') { ?>
+                                                    [비과세]
+                                                <?php } else { ?>
+                                                    [면세]
+                                                <?php } ?>
+                                            </td>
+                                            <td class="numeric">
+                                                <input type="text" size="7" value="<?= $item->costPrice ?>" id="costPrice" style="text-align: right;">원
+                                            </td>
+                                            <td class="numeric">
+                                                <input type="text" size="7" value="<?= $item->goodsPrice ?>" id="goodsPrice" style="text-align: right;">원
+                                                <br>
+                                                (<?= $item->marginRate ?>%)
+                                                <br>
+                                                <input type="hidden" value="<?= $item->tuSalesPersent ?>" id="tuSalesPersent">(<?= $item->tuSalesPersent ?>%)
+                                                <input type="hidden" name="scgoodsPrice" value="<?= $item->goodsPrice ?>">
+                                            </td>
+                                            <td class="numeric">
+                                                <input type="text" size="4" value="<?= $item->totalStock ?>" id="totalStock" style="text-align: right;">개                        
+                                            </td>
+                                            <td class="numeric"><?= $item->totalStock + $item->useStock ?>개</td>
+                                            <td class="">
+                                                <select id="goodsDisplayFl">
+                                                    <option value="y" <?php
+                                                    if ($item->goodsDisplayFl == 'y') {
+                                                        echo 'selected';
+                                                    }
+                                                    ?>>노출함</option>
+                                                    <option value="n" <?php
+                                                    if ($item->goodsDisplayFl == 'n') {
+                                                        echo 'selected';
+                                                    }
+                                                    ?>>노출안함</option>
+                                                </select>
+                                                <br>
+                                                <select id="goodsDisplayMobileFl">
+                                                    <option value="y" <?php
+                                                    if ($item->goodsDisplayMobileFl == 'y') {
+                                                        echo 'selected';
+                                                    }
+                                                    ?>>노출함</option>
+                                                    <option value="n" <?php
+                                                    if ($item->goodsDisplayMobileFl == 'n') {
+                                                        echo 'selected';
+                                                    }
+                                                    ?>>노출안함</option>
+                                                </select>
+                                            </td>
+                                            <td class="">
+                                                <select id="goodsSellFl">
+                                                    <option value="y" <?php
+                                                    if ($item->goodsSellFl == 'y') {
+                                                        echo 'selected';
+                                                    }
+                                                    ?>>판매함</option>
+                                                    <option value="n" <?php
+                                                    if ($item->goodsSellFl == 'n') {
+                                                        echo 'selected';
+                                                    }
+                                                    ?>>판매안함</option>
+                                                </select>
+                                                <br>
+                                                <select id="goodsSellMobileFl">
+                                                    <option value="y" <?php
+                                                    if ($item->goodsSellMobileFl == 'y') {
+                                                        echo 'selected';
+                                                    }
+                                                    ?>>판매함</option>
+                                                    <option value="n" <?php
+                                                    if ($item->goodsSellMobileFl == 'n') {
+                                                        echo 'selected';
+                                                    }
+                                                    ?>>판매안함</option>
+                                                </select>
+                                            </tr>
+                                        <?php if($flag -1  == goodsNo_groupby_cnt($item->goodsNo) || connect_goodsNo($item->goodsNo) == False){$flag = 1;} } ?>    
+                                    </tbody>
+                                </table>
+                            </section>
+                        </div>
+                        <?php require INC_DIR . "/movepages.php"; ?>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </section>
+</section>
+
+<?php 
+    include INC_DIR . "/footer.php"; 
+    include INC_DIR . "/end.php";
+?>
